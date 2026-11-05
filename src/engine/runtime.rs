@@ -692,17 +692,22 @@ impl Runtime {
         budget: Duration,
     ) -> Result<bool> {
         let mirrored = matches!(&run.handle, Handle::Legacy { descriptor } if descriptor.kind == "openresearch_job");
-        if !mirrored {
-            let mut progressed = false;
-            let collected = async {
-                backend.drain_log(run).await?;
-                self.collect_log(backend, run, &mut progressed).await
-            };
-            match tokio::time::timeout(budget, collected).await {
-                Ok(result) => result?,
-                Err(_) if progressed => return Ok(false),
-                Err(_) => bail!("timed out without keeping more log bytes"),
-            }
+        if mirrored {
+            return Ok(
+                crate::commands::up::api_v2::kept_ranges(&self.data_dir, &run.id)?
+                    .iter()
+                    .any(|range| range.eof),
+            );
+        }
+        let mut progressed = false;
+        let collected = async {
+            backend.drain_log(run).await?;
+            self.collect_log(backend, run, &mut progressed).await
+        };
+        match tokio::time::timeout(budget, collected).await {
+            Ok(result) => result?,
+            Err(_) if progressed => return Ok(false),
+            Err(_) => bail!("timed out without keeping more log bytes"),
         }
         Ok(true)
     }
